@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Макро Мир</title>
+<title>Бесконечный Мир</title>
 <style>
-body { margin:0; overflow:hidden; background:#000; font-family:Arial; }
-canvas { display:block; touch-action:none; }
+body { margin: 0; overflow: hidden; background: #000; font-family: Arial; }
+canvas { display: block; touch-action: none; }
 #ui {
-    position:absolute;
-    top:10px;
-    left:10px;
-    color:white;
-    background:rgba(0,0,0,0.6);
-    padding:10px;
-    border-radius:8px;
-    font-size:14px;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    background: rgba(0,0,0,0.6);
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 14px;
 }
 </style>
 </head>
@@ -24,55 +24,53 @@ canvas { display:block; touch-action:none; }
 <canvas id="canvas"></canvas>
 
 <div id="ui">
-    Макро-слой мира<br>
-    Максимальное отдаление<br>
-    Только океаны и материки
+    Управление: как было<br>
+    Мир: океаны + редкие материки
 </div>
 
 <script>
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
-let W = window.innerWidth;
-let H = window.innerHeight;
-canvas.width = W;
-canvas.height = H;
+let WIDTH = innerWidth;
+let HEIGHT = innerHeight;
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
 
 // камера
-let camX = 0;
-let camY = 0;
-let zoom = 0.35;
-let targetZoom = 0.35;
+let camX = 245;
+let camY = 132;
+let zoom = 0.75;
+let targetZoom = 0.75;
 
-// движение
+// скорость
 let velX = 0;
 let velY = 0;
 
 // noise
 let permutation = new Uint8Array(512);
 
-function initNoise() {
-    for (let i = 0; i < 256; i++) permutation[i] = i;
-    for (let i = 255; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
+function initNoise(){
+    for(let i=0;i<256;i++) permutation[i]=i;
+    for(let i=255;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [permutation[i],permutation[j]]=[permutation[j],permutation[i]];
     }
-    for (let i = 0; i < 256; i++) permutation[256 + i] = permutation[i];
+    for(let i=0;i<256;i++) permutation[256+i]=permutation[i];
 }
 
 function fade(t){return t*t*t*(t*(t*6-15)+10);}
 function lerp(a,b,t){return a+t*(b-a);}
 
 function grad(h,x,y){
-    const u = h<8?x:y;
-    const v = h<4?y:h===12||h===14?x:0;
+    const u=h<8?x:y;
+    const v=h<4?y:h===12||h===14?x:0;
     return ((h&1)?-u:u)+((h&2)?-v:v);
 }
 
 function perlin(x,y){
     const X=Math.floor(x)&255;
     const Y=Math.floor(y)&255;
-
     x-=Math.floor(x);
     y-=Math.floor(y);
 
@@ -93,85 +91,90 @@ function perlin(x,y){
     )*0.5+0.5;
 }
 
-// 🌍 МАКРО-ГЕНЕРАЦИЯ МИРА (главная штука)
-function getMacroHeight(x,y){
-    const scale = 0.00045; // ОГРОМНЫЕ материки
-
-    let continental = 0;
-    continental += perlin(x*scale, y*scale)*0.6;
-    continental += perlin(x*scale*0.5, y*scale*0.5)*0.4;
-
-    // делаем материки "собраннее"
-    continental = Math.pow(continental, 1.6);
-
-    return Math.max(0, Math.min(1, continental));
+function fbm(x,y){
+    let sum=0,amp=1,freq=1,max=0;
+    for(let i=0;i<6;i++){
+        sum+=perlin(x*freq,y*freq)*amp;
+        max+=amp;
+        amp*=0.5;
+        freq*=2;
+    }
+    return sum/max;
 }
 
-// влажность (очень грубо)
+// 🌊 НОРМАЛЬНАЯ ГЕОГРАФИЯ
+function getHeight(x,y){
+    // КРУПНЫЕ материки
+    const continental = fbm(x*0.0009, y*0.0009);
+
+    // детали убираем частично
+    const detail = fbm(x*0.006, y*0.006);
+
+    let h = continental * 1.25 + detail * 0.15;
+
+    // сглаживание (убирает "игольчатые горы")
+    h = h*h*(3-2*h);
+
+    return Math.max(0, Math.min(1,h));
+}
+
 function getMoisture(x,y){
-    return perlin(x*0.0015, y*0.0015);
+    return fbm(x*0.003, y*0.003);
 }
 
-// цвет мира
+// 🎨 ЦВЕТА МИРА
 function getColor(x,y){
-    const h = getMacroHeight(x,y);
-    const m = getMoisture(x,y);
+    const h=getHeight(x,y);
+    const m=getMoisture(x,y);
 
-    // 🌊 океан
-    if (h < 0.42){
-        const deep = '#061426';
-        const mid = '#0b2a4a';
-        const shallow = '#1e5c7a';
-
-        if (h < 0.25) return deep;
-        if (h < 0.35) return mid;
-        return shallow;
+    // 🌊 океан (главное состояние мира)
+    if(h<0.48){
+        if(h<0.30) return '#06172c'; // глубокий
+        if(h<0.40) return '#0c2f4d'; // средний
+        return '#1a5a7a';            // мелкий
     }
 
-    // 🏖 пляж
-    if (h < 0.45){
-        return '#d9c28a';
-    }
+    // 🏖 берег
+    if(h<0.52) return '#d6c08a';
 
     // 🟩 суша
-    if (h < 0.75){
-        // пустыни
-        if (m < 0.35) return '#c2a15a';
-        return '#3b7d3b';
+    if(h<0.78){
+        if(m<0.30) return '#c2a15a'; // пустыня
+        return '#2f7d3a';             // зелень
     }
 
-    // ⛰ горы (редко на этом слое)
-    return '#8a8a8a';
+    // ⛰ горы (редко)
+    return '#7a7a7a';
 }
 
 // рендер
 function render(){
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#000';
+    ctx.fillRect(0,0,WIDTH,HEIGHT);
 
-    const tile = 8;
-    const worldTile = tile/zoom;
+    const tile=7;
+    const worldTile=tile/zoom;
 
-    const left = camX - W/(2*zoom);
-    const right = camX + W/(2*zoom);
-    const top = camY - H/(2*zoom);
-    const bottom = camY + H/(2*zoom);
+    const left=camX-WIDTH/(2*zoom);
+    const right=camX+WIDTH/(2*zoom);
+    const top=camY-HEIGHT/(2*zoom);
+    const bottom=camY+HEIGHT/(2*zoom);
 
-    const startX = Math.floor(left/worldTile)*worldTile;
-    const startY = Math.floor(top/worldTile)*worldTile;
+    const startX=Math.floor(left/worldTile)*worldTile;
+    const startY=Math.floor(top/worldTile)*worldTile;
 
     for(let y=startY;y<bottom;y+=worldTile){
         for(let x=startX;x<right;x+=worldTile){
 
-            const cx = x + worldTile*0.5;
-            const cy = y + worldTile*0.5;
+            const cx=x+worldTile*0.5;
+            const cy=y+worldTile*0.5;
 
-            const color = getColor(cx,cy);
+            const col=getColor(cx,cy);
 
-            const sx = (x-camX)*zoom + W/2;
-            const sy = (y-camY)*zoom + H/2;
+            const sx=(x-camX)*zoom+WIDTH/2;
+            const sy=(y-camY)*zoom+HEIGHT/2;
 
-            ctx.fillStyle = color;
+            ctx.fillStyle=col;
             ctx.fillRect(sx,sy,worldTile*zoom+1,worldTile*zoom+1);
         }
     }
@@ -179,41 +182,43 @@ function render(){
 
 // loop
 function loop(){
-    camX += velX;
-    camY += velY;
+    camX+=velX;
+    camY+=velY;
 
-    velX *= 0.85;
-    velY *= 0.85;
+    velX*=0.88;
+    velY*=0.88;
 
-    zoom = zoom*0.9 + targetZoom*0.1;
+    zoom=zoom*0.88+targetZoom*0.12;
 
     render();
     requestAnimationFrame(loop);
 }
 
-// controls
+// controls (НЕ ТРОГАЛ)
 window.addEventListener('wheel',e=>{
     e.preventDefault();
-    targetZoom = Math.max(0.05, Math.min(10, targetZoom*(e.deltaY>0?0.85:1.2)));
+    targetZoom=Math.max(0.05,Math.min(25,targetZoom*(e.deltaY>0?0.85:1.18)));
 },{passive:false});
 
 window.addEventListener('keydown',e=>{
-    const s = 20/zoom;
+    const s=18/zoom;
     if(e.key==='w') velY=-s;
     if(e.key==='s') velY=s;
     if(e.key==='a') velX=-s;
     if(e.key==='d') velX=s;
 
     if(e.key==='r'){
-        camX=0; camY=0; targetZoom=0.35;
+        camX=245;
+        camY=132;
+        targetZoom=0.75;
     }
 });
 
 window.addEventListener('resize',()=>{
-    W=innerWidth;
-    H=innerHeight;
-    canvas.width=W;
-    canvas.height=H;
+    WIDTH=innerWidth;
+    HEIGHT=innerHeight;
+    canvas.width=WIDTH;
+    canvas.height=HEIGHT;
 });
 
 // start
