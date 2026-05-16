@@ -1,69 +1,54 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Бесконечный Мир</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
-        canvas { display: block; touch-action: none; }
-        #ui {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            background: rgba(0,0,0,0.6);
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 14px;
-            pointer-events: none;
-            user-select: none;
-            z-index: 100;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Макро Мир</title>
+<style>
+body { margin:0; overflow:hidden; background:#000; font-family:Arial; }
+canvas { display:block; touch-action:none; }
+#ui {
+    position:absolute;
+    top:10px;
+    left:10px;
+    color:white;
+    background:rgba(0,0,0,0.6);
+    padding:10px;
+    border-radius:8px;
+    font-size:14px;
+}
+</style>
 </head>
 <body>
+
 <canvas id="canvas"></canvas>
 
 <div id="ui">
-    Мышь: drag + колесо<br>
-    Сенсор: палец для перемещения<br>
-    Два пальца: zoom<br>
-    WASD: движение<br>
-    R: сброс
+    Макро-слой мира<br>
+    Максимальное отдаление<br>
+    Только океаны и материки
 </div>
 
 <script>
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { alpha: true });
+const ctx = canvas.getContext('2d');
 
-let WIDTH = window.innerWidth;
-let HEIGHT = window.innerHeight;
-canvas.width = WIDTH;
-canvas.height = HEIGHT;
+let W = window.innerWidth;
+let H = window.innerHeight;
+canvas.width = W;
+canvas.height = H;
 
-// Камера
-let camX = 245;
-let camY = 132;
-let zoom = 0.75;
-let targetZoom = 0.75;
+// камера
+let camX = 0;
+let camY = 0;
+let zoom = 0.35;
+let targetZoom = 0.35;
 
-// Скорость
+// движение
 let velX = 0;
 let velY = 0;
 
-// Мышь
-let isDragging = false;
-let lastMouseX = 0;
-let lastMouseY = 0;
-
-// Touch
-let isTouchDragging = false;
-let lastTouchX = 0;
-let lastTouchY = 0;
-let lastTouchDistance = 0;
-
-// Noise
+// noise
 let permutation = new Uint8Array(512);
 
 function initNoise() {
@@ -75,267 +60,166 @@ function initNoise() {
     for (let i = 0; i < 256; i++) permutation[256 + i] = permutation[i];
 }
 
-function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
-function lerp(a, b, t) { return a + t * (b - a); }
+function fade(t){return t*t*t*(t*(t*6-15)+10);}
+function lerp(a,b,t){return a+t*(b-a);}
 
-function grad(hash, x, y) {
-    const h = hash & 15;
-    const u = h < 8 ? x : y;
-    const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
-    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+function grad(h,x,y){
+    const u = h<8?x:y;
+    const v = h<4?y:h===12||h===14?x:0;
+    return ((h&1)?-u:u)+((h&2)?-v:v);
 }
 
-function perlin(x, y) {
-    const X = Math.floor(x) & 255;
-    const Y = Math.floor(y) & 255;
-    x -= Math.floor(x);
-    y -= Math.floor(y);
+function perlin(x,y){
+    const X=Math.floor(x)&255;
+    const Y=Math.floor(y)&255;
 
-    const u = fade(x), v = fade(y);
+    x-=Math.floor(x);
+    y-=Math.floor(y);
 
-    const A = permutation[X] + Y;
-    const AA = permutation[A];
-    const AB = permutation[A + 1];
-    const B = permutation[X + 1] + Y;
-    const BA = permutation[B];
-    const BB = permutation[B + 1];
+    const u=fade(x);
+    const v=fade(y);
+
+    const A=permutation[X]+Y;
+    const AA=permutation[A];
+    const AB=permutation[A+1];
+    const B=permutation[X+1]+Y;
+    const BA=permutation[B];
+    const BB=permutation[B+1];
 
     return lerp(
-        lerp(grad(permutation[AA], x, y), grad(permutation[BA], x - 1, y), u),
-        lerp(grad(permutation[AB], x, y - 1), grad(permutation[BB], x - 1, y - 1), u),
+        lerp(grad(permutation[AA],x,y),grad(permutation[BA],x-1,y),u),
+        lerp(grad(permutation[AB],x,y-1),grad(permutation[BB],x-1,y-1),u),
         v
-    ) * 0.5 + 0.5;
+    )*0.5+0.5;
 }
 
-function fbm(x, y, octaves = 6, lacunarity = 2.0, gain = 0.5) {
-    let sum = 0, amp = 1, freq = 1, max = 0;
-    for (let i = 0; i < octaves; i++) {
-        sum += perlin(x * freq, y * freq) * amp;
-        max += amp;
-        amp *= gain;
-        freq *= lacunarity;
+// 🌍 МАКРО-ГЕНЕРАЦИЯ МИРА (главная штука)
+function getMacroHeight(x,y){
+    const scale = 0.00045; // ОГРОМНЫЕ материки
+
+    let continental = 0;
+    continental += perlin(x*scale, y*scale)*0.6;
+    continental += perlin(x*scale*0.5, y*scale*0.5)*0.4;
+
+    // делаем материки "собраннее"
+    continental = Math.pow(continental, 1.6);
+
+    return Math.max(0, Math.min(1, continental));
+}
+
+// влажность (очень грубо)
+function getMoisture(x,y){
+    return perlin(x*0.0015, y*0.0015);
+}
+
+// цвет мира
+function getColor(x,y){
+    const h = getMacroHeight(x,y);
+    const m = getMoisture(x,y);
+
+    // 🌊 океан
+    if (h < 0.42){
+        const deep = '#061426';
+        const mid = '#0b2a4a';
+        const shallow = '#1e5c7a';
+
+        if (h < 0.25) return deep;
+        if (h < 0.35) return mid;
+        return shallow;
     }
-    return sum / max;
+
+    // 🏖 пляж
+    if (h < 0.45){
+        return '#d9c28a';
+    }
+
+    // 🟩 суша
+    if (h < 0.75){
+        // пустыни
+        if (m < 0.35) return '#c2a15a';
+        return '#3b7d3b';
+    }
+
+    // ⛰ горы (редко на этом слое)
+    return '#8a8a8a';
 }
 
-// 🌍 ГЛАВНАЯ ПРАВКА: более мягкий рельеф, меньше гор
-function getHeight(x, y) {
-    const continental = fbm(x * 0.0006, y * 0.0006, 4, 2.0, 0.5);
-    const detail = fbm(x * 0.02, y * 0.02, 5, 2.0, 0.45);
+// рендер
+function render(){
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
 
-    let h = continental * 1.1 + detail * 0.18;
+    const tile = 8;
+    const worldTile = tile/zoom;
 
-    // сглаживание пиков
-    h = h * h * (3 - 2 * h);
+    const left = camX - W/(2*zoom);
+    const right = camX + W/(2*zoom);
+    const top = camY - H/(2*zoom);
+    const bottom = camY + H/(2*zoom);
 
-    return Math.max(0, Math.min(1, h));
-}
+    const startX = Math.floor(left/worldTile)*worldTile;
+    const startY = Math.floor(top/worldTile)*worldTile;
 
-function getMoisture(x, y) {
-    return fbm(x * 0.0035, y * 0.0035, 6, 2.3, 0.55);
-}
+    for(let y=startY;y<bottom;y+=worldTile){
+        for(let x=startX;x<right;x+=worldTile){
 
-function getTemperature(x, y) {
-    const latitude = 1.0 - Math.abs(y * 0.0003) % 2;
-    const height = getHeight(x, y);
-    return Math.max(0, Math.min(1, latitude * 0.7 + (1 - height) * 0.6));
-}
+            const cx = x + worldTile*0.5;
+            const cy = y + worldTile*0.5;
 
-function getBiomeColor(wx, wy) {
-    const h = getHeight(wx, wy);
-    const m = getMoisture(wx, wy);
-    const t = getTemperature(wx, wy);
+            const color = getColor(cx,cy);
 
-    if (h < 0.22) return (0.22 - h) / 0.22 > 0.65 ? '#0a1a3a' : '#1e4a7a';
-    if (h < 0.245) return '#e0c080';
-
-    if (h > 0.92) return '#f8f8f8';
-    if (h > 0.86) return '#777777';
-
-    if (m < 0.25 && t > 0.65) return '#e2b66a';
-    if (m > 0.65 && t > 0.55) return '#1a4a1a';
-    if (m > 0.35) return '#3d8c2f';
-
-    return '#a8b55c';
-}
-
-// 🌊 РЕКИ: длиннее, стабильнее, меньше хаоса
-function isRiver(wx, wy) {
-    const h = getHeight(wx, wy);
-    const m = getMoisture(wx, wy);
-
-    if (h < 0.12 || h > 0.60) return false;
-    if (m < 0.60) return false;
-
-    const avg = (
-        getHeight(wx + 4, wy) +
-        getHeight(wx - 4, wy) +
-        getHeight(wx, wy + 4) +
-        getHeight(wx, wy - 4)
-    ) / 4;
-
-    return h < avg - 0.02;
-}
-
-function getTileColor(wx, wy) {
-    return isRiver(wx, wy) ? '#2a6ba0' : getBiomeColor(wx, wy);
-}
-
-function render() {
-    ctx.fillStyle = '#0a1a3a';
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-    const tileSize = 6;
-    const worldTileSize = tileSize / zoom;
-
-    const left = camX - WIDTH / (2 * zoom);
-    const right = camX + WIDTH / (2 * zoom);
-    const top = camY - HEIGHT / (2 * zoom);
-    const bottom = camY + HEIGHT / (2 * zoom);
-
-    const startX = Math.floor(left / worldTileSize) * worldTileSize;
-    const startY = Math.floor(top / worldTileSize) * worldTileSize;
-
-    for (let wy = startY; wy < bottom + worldTileSize; wy += worldTileSize) {
-        for (let wx = startX; wx < right + worldTileSize; wx += worldTileSize) {
-
-            const color = getTileColor(wx + worldTileSize * 0.5, wy + worldTileSize * 0.5);
-
-            const sx = (wx - camX) * zoom + WIDTH / 2;
-            const sy = (wy - camY) * zoom + HEIGHT / 2;
-            const size = worldTileSize * zoom + 1;
+            const sx = (x-camX)*zoom + W/2;
+            const sy = (y-camY)*zoom + H/2;
 
             ctx.fillStyle = color;
-            ctx.fillRect(sx, sy, size, size);
+            ctx.fillRect(sx,sy,worldTile*zoom+1,worldTile*zoom+1);
         }
     }
 }
 
-function loop() {
+// loop
+function loop(){
     camX += velX;
     camY += velY;
 
-    velX *= 0.88;
-    velY *= 0.88;
+    velX *= 0.85;
+    velY *= 0.85;
 
-    zoom = zoom * 0.88 + targetZoom * 0.12;
+    zoom = zoom*0.9 + targetZoom*0.1;
 
     render();
     requestAnimationFrame(loop);
 }
 
-// INPUT
-
-function handleWheel(e) {
+// controls
+window.addEventListener('wheel',e=>{
     e.preventDefault();
-    targetZoom = Math.max(0.05, Math.min(25, targetZoom * (e.deltaY > 0 ? 0.85 : 1.18)));
-}
+    targetZoom = Math.max(0.05, Math.min(10, targetZoom*(e.deltaY>0?0.85:1.2)));
+},{passive:false});
 
-canvas.addEventListener('mousedown', e => {
-    if (e.button === 0) {
-        isDragging = true;
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
+window.addEventListener('keydown',e=>{
+    const s = 20/zoom;
+    if(e.key==='w') velY=-s;
+    if(e.key==='s') velY=s;
+    if(e.key==='a') velX=-s;
+    if(e.key==='d') velX=s;
+
+    if(e.key==='r'){
+        camX=0; camY=0; targetZoom=0.35;
     }
 });
 
-window.addEventListener('mousemove', e => {
-    if (!isDragging) return;
-    const dx = (e.clientX - lastMouseX) / zoom;
-    const dy = (e.clientY - lastMouseY) / zoom;
-
-    camX -= dx;
-    camY -= dy;
-
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
+window.addEventListener('resize',()=>{
+    W=innerWidth;
+    H=innerHeight;
+    canvas.width=W;
+    canvas.height=H;
 });
 
-window.addEventListener('mouseup', () => isDragging = false);
-window.addEventListener('mouseleave', () => isDragging = false);
-
-// Touch
-canvas.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) {
-        isTouchDragging = true;
-        lastTouchX = e.touches[0].clientX;
-        lastTouchY = e.touches[0].clientY;
-    } else if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchmove', e => {
-    if (e.touches.length === 1 && isTouchDragging) {
-        e.preventDefault();
-
-        const tx = e.touches[0].clientX;
-        const ty = e.touches[0].clientY;
-
-        const dx = (tx - lastTouchX) / zoom;
-        const dy = (ty - lastTouchY) / zoom;
-
-        camX -= dx;
-        camY -= dy;
-
-        lastTouchX = tx;
-        lastTouchY = ty;
-    } 
-    else if (e.touches.length === 2) {
-        e.preventDefault();
-
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (lastTouchDistance > 10) {
-            const factor = dist / lastTouchDistance;
-            targetZoom = Math.max(0.05, Math.min(25, targetZoom * factor));
-        }
-
-        lastTouchDistance = dist;
-    }
-}, { passive: false });
-
-canvas.addEventListener('touchend', () => {
-    isTouchDragging = false;
-    lastTouchDistance = 0;
-});
-
-window.addEventListener('keydown', e => {
-    const speed = 18 / zoom;
-
-    switch (e.key.toLowerCase()) {
-        case 'w': velY = -speed; break;
-        case 's': velY = speed; break;
-        case 'a': velX = -speed; break;
-        case 'd': velX = speed; break;
-        case 'r':
-            camX = 245;
-            camY = 132;
-            targetZoom = 0.75;
-            break;
-    }
-});
-
-function resize() {
-    WIDTH = window.innerWidth;
-    HEIGHT = window.innerHeight;
-    canvas.width = WIDTH;
-    canvas.height = HEIGHT;
-}
-
-window.addEventListener('resize', resize);
-canvas.addEventListener('wheel', handleWheel, { passive: false });
-
-// START
+// start
 initNoise();
-window.onload = () => {
-    render();
-    loop();
-};
+loop();
 </script>
+
 </body>
 </html>
