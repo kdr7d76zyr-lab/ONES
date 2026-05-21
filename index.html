@@ -1,231 +1,329 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Perlin & Voronoi Noise</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>World Generator</title>
 
 <style>
-    body {
+    html, body {
         margin: 0;
-        background: #111;
-        color: white;
-        font-family: Arial;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+        overflow: hidden;
+        background: black;
     }
 
     canvas {
-        border: 2px solid white;
-        margin-top: 10px;
+        display: block;
+        image-rendering: pixelated;
     }
 
-    .controls {
-        margin-top: 10px;
-        display: flex;
-        gap: 15px;
-        flex-wrap: wrap;
-        justify-content: center;
+    #ui {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: Arial;
+        background: rgba(0,0,0,0.5);
+        padding: 10px;
+        border-radius: 8px;
+        z-index: 10;
     }
 
-    label {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    input, select {
-        margin-top: 5px;
+    button {
+        margin-top: 6px;
+        cursor: pointer;
     }
 </style>
 </head>
 <body>
 
-<h2>Шум Перлина и Вороного</h2>
-
-<div class="controls">
-
-    <label>
-        Тип шума
-        <select id="noiseType">
-            <option value="perlin">Perlin</option>
-            <option value="voronoi">Voronoi</option>
-        </select>
-    </label>
-
-    <label>
-        Scale
-        <input type="range" id="scale" min="10" max="200" value="50">
-    </label>
-
-    <label>
-        Cells (Voronoi)
-        <input type="range" id="cells" min="5" max="100" value="30">
-    </label>
-
+<div id="ui">
+    <div>Колесо — zoom</div>
+    <div>ЛКМ — двигать карту</div>
+    <button id="regen">Новый мир</button>
 </div>
 
-<canvas id="canvas" width="500" height="500"></canvas>
+<canvas id="canvas"></canvas>
 
 <script>
+// =======================================================
+// НАСТРОЙКИ МИРА
+// =======================================================
+
+const WORLD_WIDTH = 4096;
+const WORLD_HEIGHT = 2048;
+
+const TILE_SIZE = 4;
+
+// =======================================================
+// CANVAS
+// =======================================================
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-const scaleInput = document.getElementById("scale");
-const cellsInput = document.getElementById("cells");
-const noiseType = document.getElementById("noiseType");
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
 
-function randomGradient() {
-    const angle = Math.random() * Math.PI * 2;
+// =======================================================
+// КАМЕРА
+// =======================================================
+
+let cameraX = WORLD_WIDTH / 2;
+let cameraY = WORLD_HEIGHT / 2;
+let zoom = 0.4;
+
+let dragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+canvas.addEventListener("mousedown", e => {
+    dragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+});
+
+window.addEventListener("mouseup", () => {
+    dragging = false;
+});
+
+window.addEventListener("mousemove", e => {
+    if (!dragging) return;
+
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+
+    cameraX -= dx / zoom;
+    cameraY -= dy / zoom;
+
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+});
+
+canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+
+    const zoomFactor = 1.15;
+
+    if (e.deltaY < 0) {
+        zoom *= zoomFactor;
+    } else {
+        zoom /= zoomFactor;
+    }
+
+    zoom = Math.max(0.05, Math.min(zoom, 50));
+}, { passive: false });
+
+// =======================================================
+// RANDOM
+// =======================================================
+
+let SEED = Math.random() * 999999;
+
+function random(x, y) {
+    let n = x * 374761393 + y * 668265263 + SEED * 31;
+    n = (n ^ (n >> 13)) * 1274126177;
+    return ((n ^ (n >> 16)) >>> 0) / 4294967295;
+}
+
+// =======================================================
+// TILEABLE NOISE
+// =======================================================
+// Полностью бесшовный noise.
+// Мир можно бесконечно прокручивать.
+// Края совпадают идеально.
+// =======================================================
+
+function smoothstep(t) {
+    return t * t * (3 - 2 * t);
+}
+
+function valueNoise(x, y, scale) {
+
+    x /= scale;
+    y /= scale;
+
+    // wrap
+    const x0 = Math.floor(x) % WORLD_WIDTH;
+    const y0 = Math.floor(y) % WORLD_HEIGHT;
+
+    const x1 = (x0 + 1) % WORLD_WIDTH;
+    const y1 = (y0 + 1) % WORLD_HEIGHT;
+
+    const sx = smoothstep(x - Math.floor(x));
+    const sy = smoothstep(y - Math.floor(y));
+
+    const n00 = random(x0, y0);
+    const n10 = random(x1, y0);
+    const n01 = random(x0, y1);
+    const n11 = random(x1, y1);
+
+    const ix0 = n00 + (n10 - n00) * sx;
+    const ix1 = n01 + (n11 - n01) * sx;
+
+    return ix0 + (ix1 - ix0) * sy;
+}
+
+function fractalNoise(x, y) {
+
+    let value = 0;
+
+    value += valueNoise(x, y, 1200) * 1.0;
+    value += valueNoise(x, y, 600) * 0.5;
+    value += valueNoise(x, y, 300) * 0.25;
+    value += valueNoise(x, y, 150) * 0.12;
+
+    return value / 1.87;
+}
+
+// =======================================================
+// ГЕНЕРАЦИЯ ВЫСОТЫ
+// =======================================================
+
+function getHeight(x, y) {
+
+    // Базовый noise
+    let n = fractalNoise(x, y);
+
+    // Континентальные массы
+    let continent = valueNoise(x, y, 2200);
+
+    // Смешивание
+    n = n * 0.55 + continent * 0.45;
+
+    // Полюса
+    const latitude = Math.abs((y / WORLD_HEIGHT) * 2 - 1);
+
+    const poleFactor = Math.pow(latitude, 3);
+
     return {
-        x: Math.cos(angle),
-        y: Math.sin(angle)
+        height: n,
+        pole: poleFactor
     };
 }
 
-const gradients = {};
+// =======================================================
+// ЦВЕТА
+// =======================================================
 
-function dotGridGradient(ix, iy, x, y) {
+function getColor(data) {
 
-    const key = ix + "," + iy;
+    const h = data.height;
+    const pole = data.pole;
 
-    if (!gradients[key]) {
-        gradients[key] = randomGradient();
+    // Ледяные полюса
+    if (pole > 0.82) {
+        return "#f2fbff";
     }
 
-    const gradient = gradients[key];
+    // Океан
+    if (h < 0.36) {
+        return "#001b44";
+    }
 
-    const dx = x - ix;
-    const dy = y - iy;
+    // Глубокое море
+    if (h < 0.42) {
+        return "#003b88";
+    }
 
-    return dx * gradient.x + dy * gradient.y;
+    // Мелководье
+    if (h < 0.46) {
+        return "#1f6bb8";
+    }
+
+    // Побережье
+    if (h < 0.49) {
+        return "#d9d29c";
+    }
+
+    // Равнины
+    if (h < 0.62) {
+        return "#4c9a5f";
+    }
+
+    // Высоты
+    if (h < 0.72) {
+        return "#3e7a45";
+    }
+
+    // Горы
+    if (h < 0.82) {
+        return "#71655a";
+    }
+
+    // Снежные вершины
+    return "#d9d9d9";
 }
 
-function lerp(a, b, t) {
-    return a + t * (b - a);
-}
+// =======================================================
+// РЕНДЕР
+// =======================================================
 
-function fade(t) {
-    return t * t * t * (t * (t * 6 - 15) + 10);
-}
+function draw() {
 
-function perlin(x, y) {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const x0 = Math.floor(x);
-    const x1 = x0 + 1;
+    const visibleTileSize = TILE_SIZE * zoom;
 
-    const y0 = Math.floor(y);
-    const y1 = y0 + 1;
+    let step = TILE_SIZE;
 
-    const sx = fade(x - x0);
-    const sy = fade(y - y0);
+    // На сильном отдалении рисуем крупнее
+    if (zoom < 0.15) step = 16;
+    else if (zoom < 0.3) step = 8;
+    else if (zoom < 0.7) step = 4;
+    else step = 2;
 
-    const n0 = dotGridGradient(x0, y0, x, y);
-    const n1 = dotGridGradient(x1, y0, x, y);
+    const worldViewWidth = canvas.width / zoom;
+    const worldViewHeight = canvas.height / zoom;
 
-    const ix0 = lerp(n0, n1, sx);
+    const startX = Math.floor(cameraX - worldViewWidth / 2);
+    const startY = Math.floor(cameraY - worldViewHeight / 2);
 
-    const n2 = dotGridGradient(x0, y1, x, y);
-    const n3 = dotGridGradient(x1, y1, x, y);
+    const endX = Math.ceil(cameraX + worldViewWidth / 2);
+    const endY = Math.ceil(cameraY + worldViewHeight / 2);
 
-    const ix1 = lerp(n2, n3, sx);
+    for (let y = startY; y < endY; y += step) {
 
-    return lerp(ix0, ix1, sy);
-}
+        for (let x = startX; x < endX; x += step) {
 
-function drawPerlin() {
+            // Бесшовный wrap
+            const wx = ((x % WORLD_WIDTH) + WORLD_WIDTH) % WORLD_WIDTH;
+            const wy = ((y % WORLD_HEIGHT) + WORLD_HEIGHT) % WORLD_HEIGHT;
 
-    const image = ctx.createImageData(canvas.width, canvas.height);
-    const scale = Number(scaleInput.value);
+            const data = getHeight(wx, wy);
 
-    for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
+            ctx.fillStyle = getColor(data);
 
-            const value = perlin(x / scale, y / scale);
+            const screenX = (x - cameraX) * zoom + canvas.width / 2;
+            const screenY = (y - cameraY) * zoom + canvas.height / 2;
 
-            const color = Math.floor((value + 1) * 128);
-
-            const index = (y * canvas.width + x) * 4;
-
-            image.data[index] = color;
-            image.data[index + 1] = color;
-            image.data[index + 2] = color;
-            image.data[index + 3] = 255;
+            ctx.fillRect(
+                screenX,
+                screenY,
+                step * zoom + 1,
+                step * zoom + 1
+            );
         }
     }
 
-    ctx.putImageData(image, 0, 0);
+    requestAnimationFrame(draw);
 }
 
-function generatePoints(count) {
+// =======================================================
+// REGENERATE
+// =======================================================
 
-    const points = [];
+document.getElementById("regen").onclick = () => {
+    SEED = Math.random() * 99999999;
+};
 
-    for (let i = 0; i < count; i++) {
-        points.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height
-        });
-    }
-
-    return points;
-}
-
-function drawVoronoi() {
-
-    const image = ctx.createImageData(canvas.width, canvas.height);
-
-    const points = generatePoints(Number(cellsInput.value));
-
-    for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
-
-            let minDist = Infinity;
-
-            for (const p of points) {
-
-                const dx = x - p.x;
-                const dy = y - p.y;
-
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
-                if (dist < minDist) {
-                    minDist = dist;
-                }
-            }
-
-            const color = Math.max(0, 255 - minDist);
-
-            const index = (y * canvas.width + x) * 4;
-
-            image.data[index] = color;
-            image.data[index + 1] = color;
-            image.data[index + 2] = color;
-            image.data[index + 3] = 255;
-        }
-    }
-
-    ctx.putImageData(image, 0, 0);
-}
-
-function render() {
-
-    if (noiseType.value === "perlin") {
-        drawPerlin();
-    } else {
-        drawVoronoi();
-    }
-}
-
-scaleInput.addEventListener("input", render);
-cellsInput.addEventListener("input", render);
-noiseType.addEventListener("change", render);
-
-render();
+draw();
 
 </script>
-
 </body>
 </html>
